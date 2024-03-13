@@ -1,0 +1,91 @@
+# Import the required modules
+import time
+import RPi.GPIO as GPIO
+import Adafruit_BMP.BMP085 as BMP085
+from opcua import Client
+
+# Define the host and port of the server
+HOST = "192.168.192.220"  # The IP address of the server
+PORT = 4840  # The port used by the server
+
+# Define the endpoint of the server
+ENDPOINT = f"opc.tcp://{HOST}:{PORT}/freeopcua/RealTimeEnv/"
+
+# Connect to the server
+client = Client(ENDPOINT)
+client.connect()
+print("Client connected to the server")
+
+# Get the distance and pressure nodes from the server
+dist_node = client.get_node("ns=2;s=distance")
+pres_node = client.get_node("ns=2;s=pressure")
+
+# Define the GPIO pins for the sensor
+TRIG = 18  # Trigger pin
+ECHO = 24  # Echo pin
+
+# Set the GPIO mode
+GPIO.setmode(GPIO.BCM)
+
+# Set the GPIO direction
+GPIO.setup(TRIG, GPIO.OUT)
+GPIO.setup(ECHO, GPIO.IN)
+sensor = BMP085.BMP085()
+
+# Define a function to measure the distance
+def distance():
+    # Set the trigger to HIGH
+    GPIO.output(TRIG, True)
+
+    # Wait for 10 microseconds
+    time.sleep(0.00001)
+
+    # Set the trigger to LOW
+    GPIO.output(TRIG, False)
+
+    # Record the start and end times
+    start_time = time.time()
+    end_time = time.time()
+
+    # Wait for the echo pin to be HIGH
+    while GPIO.input(ECHO) == 0:
+        start_time = time.time()
+
+    # Wait for the echo pin to be LOW
+    while GPIO.input(ECHO) == 1:
+        end_time = time.time()
+
+    # Calculate the time difference
+    time_diff = end_time - start_time
+
+    # Calculate the distance (in cm) based on the speed of sound
+    distance = (time_diff * 34300) / 2
+
+    # Return the distance
+    return distance
+
+# Main loop
+try:
+    while True:
+        # Get the distance
+        dist = distance()
+
+        # Print the distance
+        print(f"Measured Distance = {dist:.1f} cm")
+
+        # Read pressure
+        pressure = sensor.read_pressure()
+        print(f"Pressure: {pressure:.1f} Pa")
+
+        # Write the distance and pressure to the server
+        dist_node.set_value(dist)
+        pres_node.set_value(pressure)
+
+        # Wait for 1 second
+        time.sleep(1)
+
+# Exit the program by pressing CTRL + C
+except KeyboardInterrupt:
+    print("Measurement stopped by user")
+    client.disconnect()
+    GPIO.cleanup()
